@@ -26,7 +26,7 @@ Download your preferred flavor from [the releases](https://github.com/dkorunic/d
 ### Using go get
 
 ```shell
-go get https://github.com/dkorunic/dnstrace
+go get github.com/dkorunic/dnstrace
 ```
 
 ## Usage
