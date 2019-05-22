@@ -1,0 +1,22 @@
+language: go
+sudo: false
+matrix:
+  include:
+    - go: 1.x
+
+before_install:
+    - go get github.com/mitchellh/gox
+    - go get -t -v ./...
+
+install:
+    - # skip
+
+script:
+    - go get -t -v ./...
+    - diff -u <(echo -n) <(gofmt -d .)
+    - go vet $(go list ./... | grep -v /vendor/)
+    - go test -v -race ./...
+    - gox -osarch="linux/arm linux/arm64 linux/386 linux/amd64 darwin/386 darwin/amd64 freebsd/arm freebsd/386 freebsd/amd64 windows/386 windows/amd64" -verbose ./...
+
+notifications:
+    email: false
