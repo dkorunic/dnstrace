@@ -188,9 +188,18 @@ Retry:
 				color.Green("%v", rr)
 				color.Cyan("~ Following CNAME: %q/CNAME -> %q", rr.Header().Name,
 					rr.(*dns.CNAME).Target)
-				fmt.Printf("\n")
 
-				return doDNSQuery(rr.(*dns.CNAME).Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub)
+				// In-zone CNAME target so we can continue with current nameserver
+				if strings.HasSuffix(rr.(*dns.CNAME).Target, "."+zone) {
+					fmt.Printf("\n")
+					return doDNSQuery(rr.(*dns.CNAME).Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub)
+				}
+
+				// Start sub-query from the root nameservers
+				nsLabel, nsIP, _ = roots.GetRand()
+				color.Yellow("~ Out of zone CNAME target, sub-query will restart from \".\"")
+				fmt.Printf("\n")
+				return doDNSQuery(rr.(*dns.CNAME).Target, qtype, nsIP, nsLabel, ".", rtt+rttIn, sub)
 			}
 		}
 
