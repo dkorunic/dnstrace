@@ -24,12 +24,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"strings"
+
 	"github.com/dkorunic/dnstrace/cache"
 	"github.com/dkorunic/dnstrace/hints"
 	"github.com/fatih/color"
 	"github.com/miekg/dns"
-	"os"
-	"strings"
 )
 
 var (

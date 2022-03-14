@@ -27,9 +27,11 @@ import (
 	"time"
 )
 
-const defaultHTTPTImeout = 4000 * time.Millisecond
-const IpifyURL = "https://api.ipify.org?format=text"
-const clientExternal = "external"
+const (
+	defaultHTTPTImeout = 4000 * time.Millisecond
+	IpifyURL           = "https://api.ipify.org?format=text"
+	clientExternal     = "external"
+)
 
 // getIpify returns external IP address as from ipify.org
 func getIpify() string {

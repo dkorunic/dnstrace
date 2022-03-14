@@ -23,14 +23,15 @@ package main
 
 import (
 	"fmt"
-	"github.com/dkorunic/dnstrace/cache"
-	"github.com/dkorunic/dnstrace/hints"
-	"github.com/fatih/color"
-	"github.com/miekg/dns"
 	"net"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dkorunic/dnstrace/cache"
+	"github.com/dkorunic/dnstrace/hints"
+	"github.com/fatih/color"
+	"github.com/miekg/dns"
 )
 
 const defaultDNSTimeout = 2000 * time.Millisecond
