@@ -22,8 +22,9 @@
 package hints
 
 import (
-	"github.com/sean-/seed"
 	"math/rand"
+
+	"github.com/sean-/seed"
 )
 
 type Root struct {
@@ -55,7 +56,8 @@ func New() *Hints {
 		{"j.root-servers.net.", "192.58.128.30", "2001:503:c27::2:30"},
 		{"k.root-servers.net.", "193.0.14.129", "2001:7fd::1"},
 		{"l.root-servers.net.", "199.7.83.42", "2001:500:3::42"},
-		{"m.root-servers.net.", "202.12.27.33", "2001:dc3::35"}}}
+		{"m.root-servers.net.", "202.12.27.33", "2001:dc3::35"},
+	}}
 }
 
 // Get returns an array of root nameserver hints

@@ -159,8 +159,10 @@ Retry:
 	// Update A cache from A type RRs in ADDITIONAL section
 	for _, rr := range r.Extra {
 		if rr.Header().Rrtype == dns.TypeA {
-			rrn := strings.ToLower(rr.Header().Name)
-			aCache.Add(rrn, rr.(*dns.A))
+			if a, ok := rr.(*dns.A); ok {
+				rrn := strings.ToLower(rr.Header().Name)
+				aCache.Add(rrn, a)
+			}
 		}
 	}
 
@@ -186,21 +188,23 @@ Retry:
 		if len(rrCnameSub) > 0 {
 			color.Green("Got CNAME in response:")
 			for _, rr := range rrCnameSub {
-				color.Green("%v", rr)
-				color.Cyan("~ Following CNAME: %q/CNAME -> %q", rr.Header().Name,
-					rr.(*dns.CNAME).Target)
+				if c, ok := rr.(*dns.CNAME); ok {
+					color.Green("%v", rr)
+					color.Cyan("~ Following CNAME: %q/CNAME -> %q", rr.Header().Name,
+						c.Target)
 
-				// In-zone CNAME target so we can continue with current nameserver
-				if strings.HasSuffix(rr.(*dns.CNAME).Target, "."+zone) {
+					// In-zone CNAME target so we can continue with current nameserver
+					if strings.HasSuffix(c.Target, "."+zone) {
+						fmt.Printf("\n")
+						return doDNSQuery(c.Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub)
+					}
+
+					// Start sub-query from the root nameservers
+					nsLabel, nsIP, _ = roots.GetRand()
+					color.Yellow("~ Out of zone CNAME target, sub-query will restart from \".\"")
 					fmt.Printf("\n")
-					return doDNSQuery(rr.(*dns.CNAME).Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub)
+					return doDNSQuery(c.Target, qtype, nsIP, nsLabel, ".", rtt+rttIn, sub)
 				}
-
-				// Start sub-query from the root nameservers
-				nsLabel, nsIP, _ = roots.GetRand()
-				color.Yellow("~ Out of zone CNAME target, sub-query will restart from \".\"")
-				fmt.Printf("\n")
-				return doDNSQuery(rr.(*dns.CNAME).Target, qtype, nsIP, nsLabel, ".", rtt+rttIn, sub)
 			}
 		}
 
@@ -259,7 +263,7 @@ Retry:
 func getRRset(rr []dns.RR, qname string, qtype uint16) []dns.RR {
 	var rr1 []dns.RR
 	for _, rr := range rr {
-		if strings.ToLower(rr.Header().Name) == strings.ToLower(qname) && rr.Header().Rrtype == qtype {
+		if strings.EqualFold(rr.Header().Name, qname) && rr.Header().Rrtype == qtype {
 			rr1 = append(rr1, rr)
 		}
 	}

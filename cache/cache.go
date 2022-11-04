@@ -22,11 +22,12 @@
 package cache
 
 import (
-	"github.com/miekg/dns"
-	"github.com/sean-/seed"
 	"math/rand"
 	"strings"
 	"sync"
+
+	"github.com/miekg/dns"
+	"github.com/sean-/seed"
 )
 
 type Cache struct {
@@ -35,7 +36,7 @@ type Cache struct {
 }
 
 func init() {
-	seed.Init()
+	_, _ = seed.Init()
 }
 
 // New returns a new and initialized A dns cache
