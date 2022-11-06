@@ -13,7 +13,7 @@ EDNS is supported (with 4096 message payload size), as well as TCP failover in c
 
 It is also possible to set Recursion Desired flag which essentially disables DNS tracing and relies on local resolver (from `/etc/resolver.conf`) or remote DNS cache/resolver to perform all iterative queries and return the final result.
 
-[![asciicast](https://asciinema.org/a/247701.svg)](https://asciinema.org/a/247701)
+![Demo](demo.gif)
 
 ## Installation
 
