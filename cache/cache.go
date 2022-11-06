@@ -26,74 +26,80 @@ import (
 	"strings"
 	"sync"
 
+	"filippo.io/mostly-harmless/cryptosource"
+
 	"github.com/miekg/dns"
-	"github.com/sean-/seed"
 )
 
 type Cache struct {
 	items map[string][]*dns.A
 	m     sync.RWMutex
+	r     *rand.Rand
 }
 
-func init() {
-	_, _ = seed.Init()
-}
+const (
+	defaultSize = 100
+)
 
-// New returns a new and initialized A dns cache
+// New returns a new and initialized A dns cache.
 func New() *Cache {
-	return &Cache{items: make(map[string][]*dns.A)}
+	return &Cache{
+		items: make(map[string][]*dns.A, defaultSize),
+		r:     rand.New(cryptosource.New()), //nolint:gosec
+	}
 }
 
-// Set adds a single item to the cache, replacing all existing items
+// Set adds a single item to the cache, replacing all existing items.
 func (c *Cache) Set(qname string, rr *dns.A) {
 	c.m.Lock()
+	defer c.m.Unlock()
+
 	c.items[strings.ToLower(qname)] = append([]*dns.A(nil), rr)
-	c.m.Unlock()
 }
 
-// Add an item to the cache only if item doesn't exist for a given key
+// Add an item to the cache only if item doesn't exist for a given key.
 func (c *Cache) Add(qname string, rr *dns.A) {
 	c.m.Lock()
+	defer c.m.Unlock()
 
 	// Check if rr is duplicate and skip adding if true
 	if v, ok := c.items[strings.ToLower(qname)]; ok {
 		for _, rr1 := range v {
 			if dns.IsDuplicate(rr, rr1) {
-				c.m.Unlock()
 				return
 			}
 		}
 	}
 
 	c.items[strings.ToLower(qname)] = append(c.items[strings.ToLower(qname)], rr)
-	c.m.Unlock()
 }
 
-// Get an item (list) from the cache, returning an item and a boolean indicating if the key has been found
+// Get an item (list) from the cache, returning an item and a boolean indicating if the key has been found.
 func (c *Cache) Get(qname string) ([]*dns.A, bool) {
 	c.m.RLock()
+	defer c.m.RUnlock()
+
 	v, ok := c.items[strings.ToLower(qname)]
 	if !ok {
-		c.m.RUnlock()
 		return nil, false
 	}
 
-	c.m.RUnlock()
 	return v, true
 }
 
-// Get a randomized item (single item) from the cache, returning also a boolean indicating if the key has been found
+// GetRand gets a randomized item (single item) from the cache, returning also a boolean indicating if the key has been
+// found.
 func (c *Cache) GetRand(qname string) (*dns.A, bool) {
 	c.m.RLock()
+	defer c.m.RUnlock()
+
 	v, ok := c.items[strings.ToLower(qname)]
 	if !ok {
-		c.m.RUnlock()
 		return nil, false
 	}
 
-	c.m.RUnlock()
-
 	// Randomized item for a given key
-	n := rand.Int() % len(v)
+	n := c.r.Int() % len(v)
+
 	return v[n], true
 }

@@ -3,9 +3,9 @@ module github.com/dkorunic/dnstrace
 go 1.19
 
 require (
+	filippo.io/mostly-harmless/cryptosource v0.0.0-20221105134001-969191f8eda1
 	github.com/fatih/color v1.13.0
 	github.com/miekg/dns v1.1.50
-	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529
 )
 
 require (

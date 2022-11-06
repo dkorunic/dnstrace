@@ -40,7 +40,7 @@ var (
 	ignoresub = flag.Bool("ignoresub", false, "Ignore tracing sub-requests when missing glue")
 	tcp       = flag.Bool("tcp", false, "Use TCP when querying DNS servers")
 	client    = flag.String("client", "", "Sends EDNS Client Subnet option with specified IP address")
-	port      = flag.Int("port", 53, "Use to send DNS queries to non-standard ports")
+	port      = flag.Uint("port", 53, "Use to send DNS queries to non-standard ports")
 )
 
 func main() {
@@ -69,12 +69,14 @@ doesn't necessarily reflect real life.
 		// Nameserver starts with '@'
 		if arg[0] == '@' {
 			nsIP = arg
+
 			continue
 		}
 
 		// Presume next argument is qtype and attempt to match
 		if v, ok := dns.StringToType[strings.ToUpper(arg)]; ok {
 			qtype = append(qtype, v)
+
 			continue
 		}
 

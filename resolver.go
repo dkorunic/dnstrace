@@ -22,6 +22,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -34,11 +35,16 @@ import (
 	"github.com/miekg/dns"
 )
 
-const defaultDNSTimeout = 2000 * time.Millisecond
+const (
+	defaultDNSTimeout = 2000 * time.Millisecond
+)
 
 var (
-	roots  *hints.Hints
-	aCache *cache.Cache
+	roots                *hints.Hints
+	aCache               *cache.Cache
+	ErrParseClientSubnet = errors.New("failure to parse client-subnet IP")
+	ErrIdMismatch        = errors.New("id mismatch")
+	ErrResolve           = errors.New("unable to resolve")
 )
 
 func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn time.Duration, sub bool) (time.Duration, error) {
@@ -57,6 +63,7 @@ func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn ti
 			for _, rr := range v {
 				color.Green("%v", rr)
 			}
+
 			return rttIn, nil
 		}
 	}
@@ -90,7 +97,7 @@ func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn ti
 			}
 
 			if e.Address == nil {
-				return rttIn, fmt.Errorf("failure to parse client-subnet IP: %s", *client)
+				return rttIn, fmt.Errorf("%w: %v", ErrParseClientSubnet, *client)
 			}
 
 			if e.Address.To4() == nil {
@@ -103,14 +110,13 @@ func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn ti
 		m.Extra = append(m.Extra, o)
 	}
 
-	r, rtt, err := c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(*port)))
+	r, rtt, err := c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(int(*port))))
 
 Retry:
 	// Truncated responses and UDP timeouts are candidates for retry
 	if m.Truncated ||
 		(err != nil && strings.HasPrefix(err.Error(), "read udp") &&
 			strings.HasSuffix(err.Error(), "i/o timeout")) {
-
 		if *fallback {
 			// Enable EDNS and 4096 buffer size if previously not enabled
 			if !*edns {
@@ -122,7 +128,7 @@ Retry:
 				o.SetUDPSize(dns.DefaultMsgSize)
 				m.Extra = append(m.Extra, o)
 
-				r, rtt, err = c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(*port)))
+				r, rtt, err = c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(int(*port))))
 				*edns = true
 
 				goto Retry
@@ -131,7 +137,7 @@ Retry:
 				color.Red("! Answer truncated, retrying with TCP")
 
 				c.Net = "tcp"
-				r, rtt, err = c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(*port)))
+				r, rtt, err = c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(int(*port))))
 				*fallback = false
 
 				goto Retry
@@ -143,7 +149,7 @@ Retry:
 
 	// Response ID mismatch
 	if r.Id != m.Id {
-		return rttIn, fmt.Errorf("id mismatch")
+		return rttIn, fmt.Errorf("%w", ErrIdMismatch)
 	}
 
 	fmt.Printf("Answer RTT: %v from %v\n", rtt, nsIP)
@@ -151,8 +157,10 @@ Retry:
 	// Update A cache from A type RRs in ANSWER section
 	for _, rr := range r.Answer {
 		if rr.Header().Rrtype == dns.TypeA {
-			rrn := strings.ToLower(rr.Header().Name)
-			aCache.Add(rrn, rr.(*dns.A))
+			if a, ok := rr.(*dns.A); ok {
+				rrn := strings.ToLower(rr.Header().Name)
+				aCache.Add(rrn, a)
+			}
 		}
 	}
 
@@ -196,6 +204,7 @@ Retry:
 					// In-zone CNAME target so we can continue with current nameserver
 					if strings.HasSuffix(c.Target, "."+zone) {
 						fmt.Printf("\n")
+
 						return doDNSQuery(c.Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub)
 					}
 
@@ -203,6 +212,7 @@ Retry:
 					nsLabel, nsIP, _ = roots.GetRand()
 					color.Yellow("~ Out of zone CNAME target, sub-query will restart from \".\"")
 					fmt.Printf("\n")
+
 					return doDNSQuery(c.Target, qtype, nsIP, nsLabel, ".", rtt+rttIn, sub)
 				}
 			}
@@ -244,7 +254,7 @@ Retry:
 					nextNs = v.A.String()
 					rtt += rtt2
 				} else {
-					return rttIn, fmt.Errorf("unable to resolve %q/A (following authority NS)", nextNs)
+					return rttIn, fmt.Errorf("%w: %q/A (following authority NS)", ErrResolve, nextNs)
 				}
 			}
 
@@ -255,7 +265,7 @@ Retry:
 		}
 	}
 
-	return rtt + rttIn, fmt.Errorf("unable to resolve %q/%v @ %v(%v)", qname, dns.TypeToString[qtype],
+	return rtt + rttIn, fmt.Errorf("%w: %q/%v @ %v(%v)", ErrResolve, qname, dns.TypeToString[qtype],
 		nsIP, nsLabel)
 }
 
@@ -267,5 +277,6 @@ func getRRset(rr []dns.RR, qname string, qtype uint16) []dns.RR {
 			rr1 = append(rr1, rr)
 		}
 	}
+
 	return rr1
 }
