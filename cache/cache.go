@@ -27,7 +27,6 @@ import (
 	"sync"
 
 	"filippo.io/mostly-harmless/cryptosource"
-
 	"github.com/miekg/dns"
 )
 
