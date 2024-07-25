@@ -32,8 +32,8 @@ import (
 
 type Cache struct {
 	items map[string][]*dns.A
-	m     sync.RWMutex
 	r     *rand.Rand
+	m     sync.RWMutex
 }
 
 const (

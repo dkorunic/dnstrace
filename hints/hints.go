@@ -34,8 +34,8 @@ type Root struct {
 }
 
 type Hints struct {
-	hints []Root
 	r     *rand.Rand
+	hints []Root
 }
 
 // New returns a new and initialized root nameserver hints db
