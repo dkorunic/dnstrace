@@ -37,6 +37,7 @@ import (
 
 const (
 	defaultDNSTimeout = 2000 * time.Millisecond
+	maxQueryDepth     = 20
 )
 
 var (
@@ -47,7 +48,59 @@ var (
 	ErrResolve           = errors.New("unable to resolve")
 )
 
-func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn time.Duration, sub bool) (time.Duration, error) {
+// isRetryable returns true when the exchange result warrants a fallback retry:
+// either the response was truncated or a UDP read timed out.
+func isRetryable(r *dns.Msg, err error) bool {
+	if r != nil && r.Truncated {
+		return true
+	}
+
+	return err != nil &&
+		strings.HasPrefix(err.Error(), "read udp") &&
+		strings.HasSuffix(err.Error(), "i/o timeout")
+}
+
+// exchangeWithFallback sends a DNS query and, if the result is retryable,
+// upgrades first to EDNS (if not already enabled) and then to TCP.
+// It never mutates the global *edns or *fallback flags.
+func exchangeWithFallback(c *dns.Client, m *dns.Msg, addr string) (*dns.Msg, time.Duration, error) {
+	r, rtt, err := c.Exchange(m, addr)
+
+	if !isRetryable(r, err) || !*fallback {
+		return r, rtt, err
+	}
+
+	// Stage 1: upgrade to EDNS if not already active.
+	// Check via IsEdns0() rather than the *edns flag, because an OPT record
+	// may already be present (e.g. when *client != "" forces one regardless).
+	if m.IsEdns0() == nil {
+		color.Red("! Answer truncated, retrying with EDNS enabled and 4096 bytes as advertised payload size")
+
+		o := new(dns.OPT)
+		o.Hdr.Name = "."
+		o.Hdr.Rrtype = dns.TypeOPT
+		o.SetUDPSize(dns.DefaultMsgSize)
+		m.Extra = append(m.Extra, o)
+
+		r, rtt, err = c.Exchange(m, addr)
+	}
+
+	// Stage 2: upgrade to TCP if still retryable.
+	if isRetryable(r, err) {
+		color.Red("! Answer truncated, retrying with TCP")
+
+		c.Net = "tcp"
+		r, rtt, err = c.Exchange(m, addr)
+	}
+
+	return r, rtt, err
+}
+
+func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn time.Duration, sub bool, depth int) (time.Duration, error) {
+	if depth > maxQueryDepth {
+		return rttIn, fmt.Errorf("%w: max query depth exceeded for %q/%v", ErrResolve, qname, dns.TypeToString[qtype])
+	}
+
 	fmt.Printf("Querying about %q/%v @ %v(%v, %q authority)\n", qname,
 		dns.TypeToString[qtype], nsIP, nsLabel, zone)
 
@@ -110,41 +163,15 @@ func doDNSQuery(qname string, qtype uint16, nsIP, nsLabel, zone string, rttIn ti
 		m.Extra = append(m.Extra, o)
 	}
 
-	r, rtt, err := c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(int(*port))))
+	addr := net.JoinHostPort(nsIP, strconv.Itoa(int(*port)))
 
-Retry:
-	// Truncated responses and UDP timeouts are candidates for retry
-	if m.Truncated ||
-		(err != nil && strings.HasPrefix(err.Error(), "read udp") &&
-			strings.HasSuffix(err.Error(), "i/o timeout")) {
-		if *fallback {
-			// Enable EDNS and 4096 buffer size if previously not enabled
-			if !*edns {
-				color.Red("! Answer truncated, retrying with EDNS enabled and 4096 bytes as advertised payload size")
-
-				o := new(dns.OPT)
-				o.Hdr.Name = "."
-				o.Hdr.Rrtype = dns.TypeOPT
-				o.SetUDPSize(dns.DefaultMsgSize)
-				m.Extra = append(m.Extra, o)
-
-				r, rtt, err = c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(int(*port))))
-				*edns = true
-
-				goto Retry
-			} else {
-				// Retry with TCP
-				color.Red("! Answer truncated, retrying with TCP")
-
-				c.Net = "tcp"
-				r, rtt, err = c.Exchange(m, net.JoinHostPort(nsIP, strconv.Itoa(int(*port))))
-				*fallback = false
-
-				goto Retry
-			}
-		}
-	} else if err != nil {
+	r, rtt, err := exchangeWithFallback(c, m, addr)
+	if err != nil {
 		return rttIn, err
+	}
+
+	if r == nil {
+		return rttIn, fmt.Errorf("%w: nil response from %v(%v)", ErrResolve, nsIP, nsLabel)
 	}
 
 	// Response ID mismatch
@@ -196,24 +223,25 @@ Retry:
 		if len(rrCnameSub) > 0 {
 			color.Green("Got CNAME in response:")
 			for _, rr := range rrCnameSub {
-				if c, ok := rr.(*dns.CNAME); ok {
+				if cn, ok := rr.(*dns.CNAME); ok {
 					color.Green("%v", rr)
-					color.Cyan("~ Following CNAME: %q/CNAME -> %q", rr.Header().Name,
-						c.Target)
+					color.Cyan("~ Following CNAME: %q/CNAME -> %q", rr.Header().Name, cn.Target)
 
-					// In-zone CNAME target so we can continue with current nameserver
-					if strings.HasSuffix(c.Target, "."+zone) {
+					// In-zone CNAME: continue with the current nameserver.
+					// Exclude the root zone (".") because every name is technically
+					// in-zone there, but root servers only delegate — never answer.
+					if zone != "." && strings.HasSuffix(cn.Target, "."+zone) {
 						fmt.Printf("\n")
 
-						return doDNSQuery(c.Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub)
+						return doDNSQuery(cn.Target, qtype, nsIP, nsLabel, zone, rtt+rttIn, sub, depth+1)
 					}
 
-					// Start sub-query from the root nameservers
+					// Out-of-zone CNAME target: restart from root nameservers
 					nsLabel, nsIP, _ = roots.GetRand()
 					color.Yellow("~ Out of zone CNAME target, sub-query will restart from \".\"")
 					fmt.Printf("\n")
 
-					return doDNSQuery(c.Target, qtype, nsIP, nsLabel, ".", rtt+rttIn, sub)
+					return doDNSQuery(cn.Target, qtype, nsIP, nsLabel, ".", rtt+rttIn, sub, depth+1)
 				}
 			}
 		}
@@ -222,47 +250,77 @@ Retry:
 		return rttIn + rtt, nil
 	}
 
-	// Process AUTHORITY section
+	// Process AUTHORITY section — try every NS record before giving up
+	var firstNsErr error
+
 	for _, ns := range r.Ns {
-		if t, ok := ns.(*dns.NS); ok {
-			nextNs := t.Ns
-			resolvedNs := false
-
-			// Attempt to match NS entries from AUTHORITY with A records in ADDITIONAL section
-			if v, ok := aCache.GetRand(nextNs); ok {
-				color.Cyan("+ Matched delegated NS and glue in additional section: %v(%v)",
-					v.A, v.Header().Name)
-
-				nextNs = v.A.String()
-				resolvedNs = true
-			}
-
-			// We haven't managed to match glue (AUTHORITY/ADDITIONAL section records), so we need to resolve A
-			// records for a NS in AUTHORITY section
-			if !resolvedNs && !*ignoresub {
-				color.Yellow("- No NS/glue match, we need extra lookups for %v", nextNs)
-				fmt.Printf("\n")
-
-				rLabel, rIP, _ := roots.GetRand()
-				rtt2, err := doDNSQuery(nextNs, dns.TypeA, rIP, rLabel, ".", 0, true)
-				if err != nil {
-					return rttIn, err
-				}
-
-				// Check cached response
-				if v, ok := aCache.GetRand(nextNs); ok {
-					nextNs = v.A.String()
-					rtt += rtt2
-				} else {
-					return rttIn, fmt.Errorf("%w: %q/A (following authority NS)", ErrResolve, nextNs)
-				}
-			}
-
-			fmt.Print("\n")
-
-			// Send query to the next server down the authority chain
-			return doDNSQuery(qname, qtype, nextNs, t.Ns, t.Header().Name, rttIn+rtt, sub)
+		t, ok := ns.(*dns.NS)
+		if !ok {
+			continue
 		}
+
+		// Normalise the NS hostname to a fully-qualified name so cache
+		// lookups match regardless of trailing-dot presence in the response.
+		nextNs := dns.Fqdn(t.Ns)
+		nsRtt := rtt
+		resolved := false
+
+		// Attempt to match NS entries from AUTHORITY with A records in ADDITIONAL section
+		if v, ok := aCache.GetRand(nextNs); ok {
+			color.Cyan("+ Matched delegated NS and glue in additional section: %v(%v)",
+				v.A, v.Header().Name)
+
+			nextNs = v.A.String()
+			resolved = true
+		}
+
+		// No glue available; resolve the NS hostname to an A record via sub-query
+		if !resolved && !*ignoresub {
+			color.Yellow("- No NS/glue match, we need extra lookups for %v", t.Ns)
+			fmt.Printf("\n")
+
+			rLabel, rIP, _ := roots.GetRand()
+
+			rtt2, err := doDNSQuery(dns.Fqdn(t.Ns), dns.TypeA, rIP, rLabel, ".", 0, true, depth+1)
+			if err != nil {
+				if firstNsErr == nil {
+					firstNsErr = err
+				}
+
+				continue
+			}
+
+			if v, ok := aCache.GetRand(nextNs); ok {
+				nextNs = v.A.String()
+				nsRtt += rtt2
+			} else {
+				nsErr := fmt.Errorf("%w: %q/A (following authority NS)", ErrResolve, t.Ns)
+				if firstNsErr == nil {
+					firstNsErr = nsErr
+				}
+
+				continue
+			}
+		} else if !resolved {
+			// ignoresub is set and no glue is available: skip this NS
+			continue
+		}
+
+		fmt.Print("\n")
+
+		// Send query to the next server down the authority chain
+		result, err := doDNSQuery(qname, qtype, nextNs, t.Ns, t.Header().Name, rttIn+nsRtt, sub, depth+1)
+		if err == nil {
+			return result, nil
+		}
+
+		if firstNsErr == nil {
+			firstNsErr = err
+		}
+	}
+
+	if firstNsErr != nil {
+		return rttIn, firstNsErr
 	}
 
 	return rtt + rttIn, fmt.Errorf("%w: %q/%v @ %v(%v)", ErrResolve, qname, dns.TypeToString[qtype],

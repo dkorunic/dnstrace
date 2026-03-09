@@ -67,7 +67,7 @@ doesn't necessarily reflect real life.
 	flag.Parse()
 	for _, arg := range flag.Args() {
 		// Nameserver starts with '@'
-		if arg[0] == '@' {
+		if len(arg) > 0 && arg[0] == '@' {
 			nsIP = arg
 
 			continue
@@ -111,6 +111,11 @@ doesn't necessarily reflect real life.
 				os.Exit(1)
 			}
 
+			if len(conf.Servers) == 0 {
+				color.Red("Error: no nameservers found in resolv.conf")
+				os.Exit(1)
+			}
+
 			// Use just the first nameserver
 			nsIP = conf.Servers[0]
 		} else {
@@ -135,7 +140,7 @@ doesn't necessarily reflect real life.
 				"Query options: recurse: %v, EDNS: %v, client-subnet: %q, fallback: %v, TCP: %v, ignore sub-queries: %v\n\n",
 				qn, dns.TypeToString[qt], nsIP, nsLabel, *recurse, *edns, *client, *fallback, *tcp, *ignoresub)
 
-			rtt, err := doDNSQuery(dns.Fqdn(qn), qt, nsIP, nsLabel, ".", 0, false)
+			rtt, err := doDNSQuery(dns.Fqdn(qn), qt, nsIP, nsLabel, ".", 0, false, 0)
 			if err != nil {
 				color.Red("Error: %v", err)
 			}
