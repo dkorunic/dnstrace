@@ -23,6 +23,7 @@ package hints
 
 import (
 	"math/rand"
+	"sync"
 
 	"filippo.io/mostly-harmless/cryptosource"
 )
@@ -36,6 +37,7 @@ type Root struct {
 type Hints struct {
 	r     *rand.Rand
 	hints []Root
+	mu    sync.Mutex // protects r; rand.Rand is not goroutine-safe
 }
 
 // New returns a new and initialized root nameserver hints db
@@ -67,7 +69,9 @@ func (h *Hints) Get() []Root {
 
 // GetRand returns a randomized item (root nameserver) from root hints
 func (h *Hints) GetRand() (string, string, string) {
+	h.mu.Lock()
 	n := h.r.Int() % len(h.hints)
+	h.mu.Unlock()
 
 	return h.hints[n].Name, h.hints[n].IPv4Address, h.hints[n].IPv6Address
 }

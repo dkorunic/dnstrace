@@ -56,7 +56,6 @@ accept true or false arguments, for instance "-edns=false"
 This tool is typically used to establish worst-case scenario RTT for iterative queries being sent from resolvers and
 doesn't necessarily reflect real life.
 `)
-		os.Exit(0)
 	}
 
 	var nsIP string
@@ -89,6 +88,7 @@ doesn't necessarily reflect real life.
 		color.Red("Error: missing qname argument (target DNS label).")
 		fmt.Printf("\n")
 		flag.Usage()
+		os.Exit(1)
 	}
 
 	// If qtype is missing, presume A

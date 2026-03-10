@@ -43,12 +43,12 @@ func getIpify() string {
 	}
 	defer resp.Body.Close()
 
-	ip, err := io.ReadAll(resp.Body)
-	if err != nil {
+	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	ip, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return ""
 	}
 

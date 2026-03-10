@@ -34,6 +34,7 @@ type Cache struct {
 	items map[string][]*dns.A
 	r     *rand.Rand
 	m     sync.RWMutex
+	rmu   sync.Mutex // separate lock for r; RWMutex.RLock allows concurrent readers but rand.Rand is not safe for concurrent use
 }
 
 const (
@@ -97,8 +98,10 @@ func (c *Cache) GetRand(qname string) (*dns.A, bool) {
 		return nil, false
 	}
 
-	// Randomized item for a given key
+	// Randomized item for a given key; rand.Rand is not goroutine-safe so use a separate lock
+	c.rmu.Lock()
 	n := c.r.Int() % len(v)
+	c.rmu.Unlock()
 
 	return v[n], true
 }

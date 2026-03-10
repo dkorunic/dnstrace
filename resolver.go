@@ -73,9 +73,11 @@ func exchangeWithFallback(c *dns.Client, m *dns.Msg, addr string) (*dns.Msg, tim
 	// Stage 1: upgrade to EDNS if not already active.
 	// Check via IsEdns0() rather than the *edns flag, because an OPT record
 	// may already be present (e.g. when *client != "" forces one regardless).
+	// Clone the message before mutating Extra so the caller's dns.Msg is not affected.
 	if m.IsEdns0() == nil {
 		color.Red("! Answer truncated, retrying with EDNS enabled and 4096 bytes as advertised payload size")
 
+		m = m.Copy()
 		o := new(dns.OPT)
 		o.Hdr.Name = "."
 		o.Hdr.Rrtype = dns.TypeOPT
