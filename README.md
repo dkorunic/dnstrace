@@ -2,7 +2,6 @@
 
 [![GitHub license](https://img.shields.io/github/license/dkorunic/dnstrace.svg)](https://github.com/dkorunic/dnstrace/blob/master/LICENSE.txt)
 [![GitHub release](https://img.shields.io/github/release/dkorunic/dnstrace.svg)](https://github.com/dkorunic/dnstrace/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/dkorunic/dnstrace)](https://goreportcard.com/report/github.com/dkorunic/dnstrace)
 
 ## About
 
